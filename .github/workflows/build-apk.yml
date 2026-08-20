@@ -1,0 +1,81 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Java 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK einrichten
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle einrichten
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Android SDK Pakete installieren
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Android-Projekt finden
+        shell: bash
+        run: |
+          SETTINGS_FILE="$(find "$GITHUB_WORKSPACE" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) | head -n 1)"
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "FEHLER: Keine settings.gradle gefunden."
+            echo "Dateien im Repository:"
+            find "$GITHUB_WORKSPACE" -maxdepth 4 -type f
+            exit 1
+          fi
+
+          GRADLE_ROOT="$(dirname "$SETTINGS_FILE")"
+
+          echo "Gradle-Projekt gefunden:"
+          echo "$GRADLE_ROOT"
+
+          echo "GRADLE_ROOT=$GRADLE_ROOT" >> "$GITHUB_ENV"
+
+      - name: Debug APK bauen
+        shell: bash
+        run: |
+          cd "$GRADLE_ROOT"
+          gradle :app:assembleDebug --stacktrace
+
+      - name: APK finden
+        shell: bash
+        run: |
+          APK_PATH="$(find "$GRADLE_ROOT" -type f -name "*.apk" | head -n 1)"
+
+          if [ -z "$APK_PATH" ]; then
+            echo "FEHLER: Keine APK gefunden."
+            exit 1
+          fi
+
+          echo "APK gefunden:"
+          echo "$APK_PATH"
+
+          cp "$APK_PATH" "$GITHUB_WORKSPACE/Butz-Konfigurator.apk"
+
+      - name: APK als Download bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Butz-Konfigurator-APK
+          path: Butz-Konfigurator.apk
+          if-no-files-found: error
+          retention-days: 30
